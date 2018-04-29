@@ -10,7 +10,9 @@ use error::Error;
 use super::FilenameGenerator;
 use types::{self, NamePart};
 
-type MultipartHash = (Vec<NamePart>, MultipartContent);
+pub type MultipartHash = (Vec<NamePart>, MultipartContent);
+
+pub type MultipartForm = Vec<MultipartHash>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum MultipartContent {
@@ -22,8 +24,6 @@ pub enum MultipartContent {
     Int(i64),
     Float(f64),
 }
-
-pub type MultipartForm = Vec<MultipartHash>;
 
 fn parse_multipart_name(name: String) -> Result<Vec<NamePart>, Error> {
     name.split('[')
