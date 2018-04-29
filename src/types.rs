@@ -1,4 +1,4 @@
-use std::{fmt, collections::VecDeque, sync::Arc};
+use std::{fmt, collections::VecDeque, path::PathBuf, sync::Arc};
 
 use futures::{Future, future::{ExecuteError, Executor}};
 use futures_cpupool::CpuPool;
@@ -271,4 +271,19 @@ impl Executor<Box<Future<Item = (), Error = ()> + Send>> for ArcExecutor where {
     ) -> Result<(), ExecuteError<Box<Future<Item = (), Error = ()> + Send>>> {
         self.inner.execute(future)
     }
+}
+
+pub type MultipartHash = (Vec<NamePart>, MultipartContent);
+
+pub type MultipartForm = Vec<MultipartHash>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum MultipartContent {
+    File {
+        filename: String,
+        stored_as: PathBuf,
+    },
+    Text(String),
+    Int(i64),
+    Float(f64),
 }

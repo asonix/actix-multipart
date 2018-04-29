@@ -1,4 +1,4 @@
-use std::{fs::DirBuilder, os::unix::fs::DirBuilderExt, path::{Path, PathBuf}, sync::Arc};
+use std::{fs::DirBuilder, os::unix::fs::DirBuilderExt, path::Path, sync::Arc};
 
 use actix_web::{multipart, error::PayloadError};
 use bytes::{Bytes, BytesMut};
@@ -8,22 +8,7 @@ use http::header::CONTENT_DISPOSITION;
 
 use error::Error;
 use super::FilenameGenerator;
-use types::{self, NamePart};
-
-pub type MultipartHash = (Vec<NamePart>, MultipartContent);
-
-pub type MultipartForm = Vec<MultipartHash>;
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum MultipartContent {
-    File {
-        filename: String,
-        stored_as: PathBuf,
-    },
-    Text(String),
-    Int(i64),
-    Float(f64),
-}
+use types::{self, MultipartContent, MultipartForm, MultipartHash, NamePart};
 
 fn parse_multipart_name(name: String) -> Result<Vec<NamePart>, Error> {
     name.split('[')
