@@ -6,6 +6,7 @@ use futures_cpupool::CpuPool;
 use super::FilenameGenerator;
 
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "with-serde", derive(Deserialize, Serialize))]
 pub enum NamePart {
     Map(String),
     Array,
@@ -278,6 +279,7 @@ pub type MultipartHash = (Vec<NamePart>, MultipartContent);
 pub type MultipartForm = Vec<MultipartHash>;
 
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "with-serde", derive(Deserialize, Serialize))]
 pub enum MultipartContent {
     File {
         filename: String,

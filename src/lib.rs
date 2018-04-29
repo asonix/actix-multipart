@@ -10,6 +10,12 @@ extern crate http;
 extern crate log;
 extern crate mime;
 
+#[cfg(feature = "with-serde")]
+extern crate serde;
+#[cfg(feature = "with-serde")]
+#[macro_use]
+extern crate serde_derive;
+
 use std::path::PathBuf;
 
 mod error;
