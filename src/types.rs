@@ -51,7 +51,6 @@ use super::FilenameGenerator;
 /// }
 /// ```
 #[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "with-serde", derive(Deserialize, Serialize))]
 pub enum Value {
     Map(HashMap<String, Value>),
     Array(Vec<Value>),
