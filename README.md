@@ -11,7 +11,7 @@ Add it to your dependencies.
 # Cargo.toml
 
 [dependencies]
-actix-form-data = "0.1.2"
+actix-form-data = "0.1.3"
 ```
 
 Require it in your project.
@@ -32,10 +32,10 @@ This creates a form with one required field named "field-name" that will be pars
 
 Then, pass it to `handle_multipart` in your request handler.
 ```rust
-let stream = form_data::handle_multipart(req.multipart, form);
+let future = form_data::handle_multipart(req.multipart, form);
 ```
 
-This returns a `Stream<Item = Value, Error = form_data::Error>`, which can be used to
+This returns a `Future<Item = Value, Error = form_data::Error>`, which can be used to
 fetch your data.
 
 ```rust
