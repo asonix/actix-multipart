@@ -1,4 +1,4 @@
-use std::{fmt, collections::VecDeque, path::PathBuf, sync::Arc};
+use std::{fmt, collections::{HashMap, VecDeque}, path::PathBuf, sync::Arc};
 
 use futures::{Future, future::{ExecuteError, Executor}};
 use futures_cpupool::CpuPool;
@@ -288,4 +288,77 @@ pub enum MultipartContent {
     Text(String),
     Int(i64),
     Float(f64),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "with-serde", derive(Deserialize, Serialize))]
+pub enum Value {
+    Map(HashMap<String, Value>),
+    Array(Vec<Value>),
+    File(String, PathBuf),
+    Text(String),
+    Int(i64),
+    Float(f64),
+}
+
+impl Value {
+    pub fn merge(&mut self, rhs: Self) {
+        match (self, rhs) {
+            (Value::Map(ref mut hm), Value::Map(ref other)) => {
+                other.into_iter().fold(hm, |hm, (key, value)| {
+                    if hm.contains_key(key) {
+                        hm.get_mut(key).unwrap().merge(value.clone())
+                    } else {
+                        hm.insert(key.to_owned(), value.clone());
+                    }
+
+                    hm
+                });
+            }
+            (Value::Array(ref mut v), Value::Array(ref other)) => {
+                v.extend(other.clone());
+            }
+            _ => (),
+        }
+    }
+}
+
+impl From<MultipartContent> for Value {
+    fn from(mc: MultipartContent) -> Self {
+        match mc {
+            MultipartContent::File {
+                filename,
+                stored_as,
+            } => Value::File(filename, stored_as),
+            MultipartContent::Text(string) => Value::Text(string),
+            MultipartContent::Int(i) => Value::Int(i),
+            MultipartContent::Float(f) => Value::Float(f),
+        }
+    }
+}
+
+pub fn consolidate(mf: MultipartForm) -> Value {
+    mf.into_iter().fold(
+        Value::Map(HashMap::new()),
+        |mut acc, (mut nameparts, content)| {
+            let start_value = Value::from(content);
+
+            nameparts.reverse();
+            let value = nameparts
+                .into_iter()
+                .fold(start_value, |acc, namepart| match namepart {
+                    NamePart::Map(name) => {
+                        let mut hm = HashMap::new();
+
+                        hm.insert(name, acc);
+
+                        Value::Map(hm)
+                    }
+                    NamePart::Array => Value::Array(vec![acc]),
+                });
+
+            acc.merge(value);
+            acc
+        },
+    )
 }
