@@ -2,6 +2,8 @@
 A library for retrieving form data from Actix Web's multipart streams. It can stream uploaded files
 onto the filesystem (its main purpose), but it can also parse associated form data.
 
+[documentation](https://docs.rs/actix-form-data)
+
 ### Usage
 
 Add it to your dependencies.
@@ -9,7 +11,7 @@ Add it to your dependencies.
 # Cargo.toml
 
 [dependencies]
-actix-form-data = "0.1.0"
+actix-form-data = "0.1.1"
 ```
 
 Require it in your project.

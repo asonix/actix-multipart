@@ -65,7 +65,7 @@ pub enum Value {
 impl Value {
     pub(crate) fn merge(&mut self, rhs: Self) {
         match (self, rhs) {
-            (Value::Map(ref mut hm), Value::Map(ref other)) => {
+            (&mut Value::Map(ref mut hm), Value::Map(ref other)) => {
                 other.into_iter().fold(hm, |hm, (key, value)| {
                     if hm.contains_key(key) {
                         hm.get_mut(key).unwrap().merge(value.clone())
@@ -76,7 +76,7 @@ impl Value {
                     hm
                 });
             }
-            (Value::Array(ref mut v), Value::Array(ref other)) => {
+            (&mut Value::Array(ref mut v), Value::Array(ref other)) => {
                 v.extend(other.clone());
             }
             _ => (),
@@ -362,8 +362,8 @@ impl Map {
             Some(name_part) => match name_part {
                 NamePart::Map(part_name) => self.inner
                     .iter()
-                    .find(|(item, _)| *item == part_name)
-                    .and_then(|(_, field)| field.valid_field(name)),
+                    .find(|&&(ref item, _)| *item == part_name)
+                    .and_then(|&(_, ref field)| field.valid_field(name)),
                 _ => None,
             },
             None => None,

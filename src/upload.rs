@@ -132,13 +132,13 @@ fn handle_file_upload<S>(
     gen: Arc<FilenameGenerator>,
     filename: Option<String>,
     form: types::Form,
-) -> impl Future<Item = MultipartContent, Error = Error>
+) -> Box<Future<Item = MultipartContent, Error = Error>>
 where
-    S: Stream<Item = Bytes, Error = PayloadError>,
+    S: Stream<Item = Bytes, Error = PayloadError> + 'static,
 {
     let filename = match filename {
         Some(filename) => filename,
-        None => return Either::B(result(Err(Error::Filename))),
+        None => return Box::new(result(Err(Error::Filename))),
     };
 
     let path: &Path = filename.as_ref();
@@ -147,12 +147,12 @@ where
     let filename = if let Some(filename) = filename {
         filename.to_owned()
     } else {
-        return Either::B(result(Err(Error::Filename)));
+        return Box::new(result(Err(Error::Filename)));
     };
 
     let stored_as = match gen.next_filename(field.content_type()) {
         Some(file_path) => file_path,
-        None => return Either::B(result(Err(Error::GenFilename))),
+        None => return Box::new(result(Err(Error::GenFilename))),
     };
 
     let mut stored_dir = stored_as.clone();
@@ -170,12 +170,12 @@ where
         tx.send(res).map_err(|_| ())
     }))) {
         | Ok(_) => (),
-        Err(_) => return Either::B(result(Err(Error::MkDir))),
+        Err(_) => return Box::new(result(Err(Error::MkDir))),
     };
 
     let counter = Arc::new(AtomicUsize::new(0));
 
-    Either::A(rx.then(|res| match res {
+    Box::new(rx.then(|res| match res {
         Ok(res) => res,
         Err(_) => Err(Error::MkDir),
     }).and_then(move |_| {
@@ -204,76 +204,78 @@ fn handle_form_data<S>(
     field: multipart::Field<S>,
     term: types::FieldTerminator,
     form: types::Form,
-) -> impl Future<Item = MultipartContent, Error = Error>
+) -> Box<Future<Item = MultipartContent, Error = Error>>
 where
-    S: Stream<Item = Bytes, Error = PayloadError>,
+    S: Stream<Item = Bytes, Error = PayloadError> + 'static,
 {
     trace!("In handle_form_data, term: {:?}", term);
     let term2 = term.clone();
 
-    field
-        .from_err()
-        .fold(BytesMut::new(), move |mut acc, bytes| {
-            if acc.len() + bytes.len() < form.max_field_size {
-                acc.extend(bytes);
-                Ok(acc)
-            } else {
-                Err(Error::FieldSize)
-            }
-        })
-        .and_then(move |bytes| match term {
-            types::FieldTerminator::Bytes => Ok(MultipartContent::Bytes(bytes.freeze())),
-            _ => String::from_utf8(bytes.to_vec())
-                .map_err(Error::ParseField)
-                .map(MultipartContent::Text),
-        })
-        .and_then(move |content| {
-            trace!("Matching: {:?}", content);
-            match content {
-                types::MultipartContent::Text(string) => match term2 {
-                    types::FieldTerminator::File(_) => Err(Error::FieldType),
-                    types::FieldTerminator::Bytes => Err(Error::FieldType),
-                    types::FieldTerminator::Float => string
-                        .parse::<f64>()
-                        .map(MultipartContent::Float)
-                        .map_err(Error::ParseFloat),
-                    types::FieldTerminator::Int => string
-                        .parse::<i64>()
-                        .map(MultipartContent::Int)
-                        .map_err(Error::ParseInt),
-                    types::FieldTerminator::Text => Ok(MultipartContent::Text(string)),
-                },
-                b @ types::MultipartContent::Bytes(_) => Ok(b),
-                _ => Err(Error::FieldType),
-            }
-        })
+    Box::new(
+        field
+            .from_err()
+            .fold(BytesMut::new(), move |mut acc, bytes| {
+                if acc.len() + bytes.len() < form.max_field_size {
+                    acc.extend(bytes);
+                    Ok(acc)
+                } else {
+                    Err(Error::FieldSize)
+                }
+            })
+            .and_then(move |bytes| match term {
+                types::FieldTerminator::Bytes => Ok(MultipartContent::Bytes(bytes.freeze())),
+                _ => String::from_utf8(bytes.to_vec())
+                    .map_err(Error::ParseField)
+                    .map(MultipartContent::Text),
+            })
+            .and_then(move |content| {
+                trace!("Matching: {:?}", content);
+                match content {
+                    types::MultipartContent::Text(string) => match term2 {
+                        types::FieldTerminator::File(_) => Err(Error::FieldType),
+                        types::FieldTerminator::Bytes => Err(Error::FieldType),
+                        types::FieldTerminator::Float => string
+                            .parse::<f64>()
+                            .map(MultipartContent::Float)
+                            .map_err(Error::ParseFloat),
+                        types::FieldTerminator::Int => string
+                            .parse::<i64>()
+                            .map(MultipartContent::Int)
+                            .map_err(Error::ParseInt),
+                        types::FieldTerminator::Text => Ok(MultipartContent::Text(string)),
+                    },
+                    b @ types::MultipartContent::Bytes(_) => Ok(b),
+                    _ => Err(Error::FieldType),
+                }
+            }),
+    )
 }
 
 fn handle_stream_field<S>(
     field: multipart::Field<S>,
     form: types::Form,
-) -> impl Future<Item = MultipartHash, Error = Error>
+) -> Box<Future<Item = MultipartHash, Error = Error>>
 where
-    S: Stream<Item = Bytes, Error = PayloadError>,
+    S: Stream<Item = Bytes, Error = PayloadError> + 'static,
 {
     let content_disposition = match parse_content_disposition(&field) {
         Ok(cd) => cd,
-        Err(e) => return Either::B(result(Err(e))),
+        Err(e) => return Box::new(result(Err(e))),
     };
 
     let name = match content_disposition.name {
         Some(name) => name,
-        None => return Either::B(result(Err(Error::Field))),
+        None => return Box::new(result(Err(Error::Field))),
     };
 
     let name = match parse_multipart_name(name) {
         Ok(name) => name,
-        Err(e) => return Either::B(result(Err(e))),
+        Err(e) => return Box::new(result(Err(e))),
     };
 
     let term = match form.valid_field(name.iter().cloned().collect()) {
         Some(term) => term,
-        None => return Either::B(result(Err(Error::FieldType))),
+        None => return Box::new(result(Err(Error::FieldType))),
     };
 
     let fut = match term {
@@ -286,7 +288,7 @@ where
         term => Either::B(handle_form_data(field, term, form)),
     };
 
-    Either::A(fut.map(|content| (name, content)))
+    Box::new(fut.map(|content| (name, content)))
 }
 
 fn handle_stream<S>(
@@ -321,49 +323,51 @@ where
 pub fn handle_multipart<S>(
     m: multipart::Multipart<S>,
     form: types::Form,
-) -> impl Future<Item = Value, Error = Error>
+) -> Box<Future<Item = Value, Error = Error>>
 where
     S: Stream<Item = Bytes, Error = PayloadError> + 'static,
 {
-    handle_stream(m, form.clone())
-        .fold(
-            (Vec::new(), 0, 0),
-            move |(mut acc, file_count, field_count), (name, content)| match content {
-                MultipartContent::File {
-                    filename,
-                    stored_as,
-                } => {
-                    let file_count = file_count + 1;
+    Box::new(
+        handle_stream(m, form.clone())
+            .fold(
+                (Vec::new(), 0, 0),
+                move |(mut acc, file_count, field_count), (name, content)| match content {
+                    MultipartContent::File {
+                        filename,
+                        stored_as,
+                    } => {
+                        let file_count = file_count + 1;
 
-                    if file_count < form.max_files {
-                        acc.push((
-                            name,
-                            MultipartContent::File {
-                                filename,
-                                stored_as,
-                            },
-                        ));
+                        if file_count < form.max_files {
+                            acc.push((
+                                name,
+                                MultipartContent::File {
+                                    filename,
+                                    stored_as,
+                                },
+                            ));
 
-                        Ok((acc, file_count, field_count))
-                    } else {
-                        Err(Error::FileCount)
+                            Ok((acc, file_count, field_count))
+                        } else {
+                            Err(Error::FileCount)
+                        }
                     }
-                }
-                b @ MultipartContent::Bytes(_)
-                | b @ MultipartContent::Text(_)
-                | b @ MultipartContent::Float(_)
-                | b @ MultipartContent::Int(_) => {
-                    let field_count = field_count + 1;
+                    b @ MultipartContent::Bytes(_)
+                    | b @ MultipartContent::Text(_)
+                    | b @ MultipartContent::Float(_)
+                    | b @ MultipartContent::Int(_) => {
+                        let field_count = field_count + 1;
 
-                    if field_count < form.max_fields {
-                        acc.push((name, b));
+                        if field_count < form.max_fields {
+                            acc.push((name, b));
 
-                        Ok((acc, file_count, field_count))
-                    } else {
-                        Err(Error::FieldCount)
+                            Ok((acc, file_count, field_count))
+                        } else {
+                            Err(Error::FieldCount)
+                        }
                     }
-                }
-            },
-        )
-        .map(|(multipart_form, _, _)| consolidate(multipart_form))
+                },
+            )
+            .map(|(multipart_form, _, _)| consolidate(multipart_form)),
+    )
 }

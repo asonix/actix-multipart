@@ -1,7 +1,7 @@
 [package]
 name = "actix-form-data"
 description = "Multipart Form Data for Actix Web"
-version = "0.1.0"
+version = "0.1.1"
 license = "GPL-3.0"
 authors = ["asonix <asonix.dev@gmail.com>"]
 repository = "https://github.com/asonix/actix-multipart"
