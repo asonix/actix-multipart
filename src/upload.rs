@@ -1,4 +1,24 @@
-use std::{fs::DirBuilder, os::unix::fs::DirBuilderExt, path::Path, sync::Arc};
+/*
+ * This file is part of Actix Form Data.
+ *
+ * Copyright © 2018 Riley Trautman
+ *
+ * Actix Form Data is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Actix Form Data is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with Actix Form Data.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+use std::{collections::HashMap, fs::DirBuilder, os::unix::fs::DirBuilderExt, path::Path,
+          sync::{Arc, atomic::{AtomicUsize, Ordering}}};
 
 use actix_web::{multipart, error::PayloadError};
 use bytes::{Bytes, BytesMut};
@@ -8,7 +28,34 @@ use http::header::CONTENT_DISPOSITION;
 
 use error::Error;
 use super::FilenameGenerator;
-use types::{self, MultipartContent, MultipartForm, MultipartHash, NamePart};
+use types::{self, ContentDisposition, MultipartContent, MultipartForm, MultipartHash, NamePart,
+            Value};
+
+fn consolidate(mf: MultipartForm) -> Value {
+    mf.into_iter().fold(
+        Value::Map(HashMap::new()),
+        |mut acc, (mut nameparts, content)| {
+            let start_value = Value::from(content);
+
+            nameparts.reverse();
+            let value = nameparts
+                .into_iter()
+                .fold(start_value, |acc, namepart| match namepart {
+                    NamePart::Map(name) => {
+                        let mut hm = HashMap::new();
+
+                        hm.insert(name, acc);
+
+                        Value::Map(hm)
+                    }
+                    NamePart::Array => Value::Array(vec![acc]),
+                });
+
+            acc.merge(value);
+            acc
+        },
+    )
+}
 
 fn parse_multipart_name(name: String) -> Result<Vec<NamePart>, Error> {
     name.split('[')
@@ -32,20 +79,6 @@ fn parse_multipart_name(name: String) -> Result<Vec<NamePart>, Error> {
             }
             Err(e) => Err(e),
         })
-}
-
-pub struct ContentDisposition {
-    name: Option<String>,
-    filename: Option<String>,
-}
-
-impl ContentDisposition {
-    fn empty() -> Self {
-        ContentDisposition {
-            name: None,
-            filename: None,
-        }
-    }
 }
 
 fn parse_content_disposition<S>(field: &multipart::Field<S>) -> Result<ContentDisposition, Error>
@@ -136,9 +169,11 @@ where
 
         tx.send(res).map_err(|_| ())
     }))) {
-        Ok(_) => (),
+        | Ok(_) => (),
         Err(_) => return Either::B(result(Err(Error::MkDir))),
     };
+
+    let counter = Arc::new(AtomicUsize::new(0));
 
     Either::A(rx.then(|res| match res {
         Ok(res) => res,
@@ -148,6 +183,15 @@ where
             FsPool::from_executor(form.pool.clone()).write(stored_as.clone(), Default::default());
         field
             .map_err(Error::Multipart)
+            .and_then(move |bytes| {
+                let size = counter.fetch_add(bytes.len(), Ordering::Relaxed) + bytes.len();
+
+                if size > form.max_file_size {
+                    Err(Error::FileSize)
+                } else {
+                    Ok(bytes)
+                }
+            })
             .forward(write)
             .map(move |_| MultipartContent::File {
                 filename,
@@ -159,42 +203,53 @@ where
 fn handle_form_data<S>(
     field: multipart::Field<S>,
     term: types::FieldTerminator,
+    form: types::Form,
 ) -> impl Future<Item = MultipartContent, Error = Error>
 where
     S: Stream<Item = Bytes, Error = PayloadError>,
 {
     trace!("In handle_form_data, term: {:?}", term);
-    let max_body_size = 80000;
+    let term2 = term.clone();
 
     field
         .from_err()
         .fold(BytesMut::new(), move |mut acc, bytes| {
-            if acc.len() + bytes.len() < max_body_size {
+            if acc.len() + bytes.len() < form.max_field_size {
                 acc.extend(bytes);
                 Ok(acc)
             } else {
                 Err(Error::FieldSize)
             }
         })
-        .and_then(|bytes| String::from_utf8(bytes.to_vec()).map_err(Error::ParseField))
-        .and_then(move |string| {
-            trace!("Matching: {:?}", string);
-            match term {
-                types::FieldTerminator::File(_) => Err(Error::FieldType),
-                types::FieldTerminator::Float => string
-                    .parse::<f64>()
-                    .map(MultipartContent::Float)
-                    .map_err(Error::ParseFloat),
-                types::FieldTerminator::Int => string
-                    .parse::<i64>()
-                    .map(MultipartContent::Int)
-                    .map_err(Error::ParseInt),
-                types::FieldTerminator::Text => Ok(MultipartContent::Text(string)),
+        .and_then(move |bytes| match term {
+            types::FieldTerminator::Bytes => Ok(MultipartContent::Bytes(bytes.freeze())),
+            _ => String::from_utf8(bytes.to_vec())
+                .map_err(Error::ParseField)
+                .map(MultipartContent::Text),
+        })
+        .and_then(move |content| {
+            trace!("Matching: {:?}", content);
+            match content {
+                types::MultipartContent::Text(string) => match term2 {
+                    types::FieldTerminator::File(_) => Err(Error::FieldType),
+                    types::FieldTerminator::Bytes => Err(Error::FieldType),
+                    types::FieldTerminator::Float => string
+                        .parse::<f64>()
+                        .map(MultipartContent::Float)
+                        .map_err(Error::ParseFloat),
+                    types::FieldTerminator::Int => string
+                        .parse::<i64>()
+                        .map(MultipartContent::Int)
+                        .map_err(Error::ParseInt),
+                    types::FieldTerminator::Text => Ok(MultipartContent::Text(string)),
+                },
+                b @ types::MultipartContent::Bytes(_) => Ok(b),
+                _ => Err(Error::FieldType),
             }
         })
 }
 
-fn handle_multipart_field<S>(
+fn handle_stream_field<S>(
     field: multipart::Field<S>,
     form: types::Form,
 ) -> impl Future<Item = MultipartHash, Error = Error>
@@ -228,13 +283,13 @@ where
             content_disposition.filename,
             form,
         )),
-        term => Either::B(handle_form_data(field, term)),
+        term => Either::B(handle_form_data(field, term, form)),
     };
 
     Either::A(fut.map(|content| (name, content)))
 }
 
-pub fn handle_multipart<S>(
+fn handle_stream<S>(
     m: multipart::Multipart<S>,
     form: types::Form,
 ) -> Box<Stream<Item = MultipartHash, Error = Error>>
@@ -247,14 +302,14 @@ where
                 multipart::MultipartItem::Field(field) => {
                     info!("Field: {:?}", field);
                     Box::new(
-                        handle_multipart_field(field, form.clone())
+                        handle_stream_field(field, form.clone())
                             .map(From::from)
                             .into_stream(),
                     ) as Box<Stream<Item = MultipartHash, Error = Error>>
                 }
                 multipart::MultipartItem::Nested(m) => {
                     info!("Nested");
-                    Box::new(handle_multipart(m, form.clone()))
+                    Box::new(handle_stream(m, form.clone()))
                         as Box<Stream<Item = MultipartHash, Error = Error>>
                 }
             })
@@ -262,17 +317,15 @@ where
     )
 }
 
-pub fn handle_upload<S>(
+/// Handle multipart streams from Actix Web
+pub fn handle_multipart<S>(
     m: multipart::Multipart<S>,
     form: types::Form,
-) -> impl Future<Item = MultipartForm, Error = Error>
+) -> impl Future<Item = Value, Error = Error>
 where
     S: Stream<Item = Bytes, Error = PayloadError> + 'static,
 {
-    let max_files = 10;
-    let max_fields = 100;
-
-    handle_multipart(m, form)
+    handle_stream(m, form.clone())
         .fold(
             (Vec::new(), 0, 0),
             move |(mut acc, file_count, field_count), (name, content)| match content {
@@ -282,7 +335,7 @@ where
                 } => {
                     let file_count = file_count + 1;
 
-                    if file_count < max_files {
+                    if file_count < form.max_files {
                         acc.push((
                             name,
                             MultipartContent::File {
@@ -296,12 +349,13 @@ where
                         Err(Error::FileCount)
                     }
                 }
-                b @ MultipartContent::Text(_)
+                b @ MultipartContent::Bytes(_)
+                | b @ MultipartContent::Text(_)
                 | b @ MultipartContent::Float(_)
                 | b @ MultipartContent::Int(_) => {
                     let field_count = field_count + 1;
 
-                    if field_count < max_fields {
+                    if field_count < form.max_fields {
                         acc.push((name, b));
 
                         Ok((acc, file_count, field_count))
@@ -311,5 +365,5 @@ where
                 }
             },
         )
-        .map(|(multipart_form, _, _)| multipart_form)
+        .map(|(multipart_form, _, _)| consolidate(multipart_form))
 }

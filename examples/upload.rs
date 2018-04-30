@@ -1,9 +1,9 @@
 extern crate actix;
-extern crate actix_multipart;
 extern crate actix_web;
 extern crate env_logger;
 #[macro_use]
 extern crate failure;
+extern crate form_data;
 extern crate futures;
 #[macro_use]
 extern crate log;
@@ -16,7 +16,7 @@ use std::{env, path::PathBuf, sync::atomic::{AtomicUsize, Ordering}};
 
 use actix_web::{http, server, App, AsyncResponder, HttpMessage, HttpRequest, HttpResponse, State,
                 error::ResponseError, middleware::Logger};
-use actix_multipart::*;
+use form_data::*;
 use futures::Future;
 
 struct Gen(AtomicUsize);
@@ -86,7 +86,7 @@ fn upload(
     req: HttpRequest<AppState>,
     state: State<AppState>,
 ) -> Box<Future<Item = HttpResponse, Error = Errors>> {
-    handle_upload(req.multipart(), state.form.clone())
+    handle_multipart(req.multipart(), state.form.clone())
         .map(|uploaded_content| {
             info!("Uploaded Content: {:?}", uploaded_content);
             HttpResponse::Created().finish()

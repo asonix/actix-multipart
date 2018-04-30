@@ -1,6 +1,25 @@
+/*
+ * This file is part of Actix Form Data.
+ *
+ * Copyright © 2018 Riley Trautman
+ *
+ * Actix Form Data is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Actix Form Data is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with Actix Form Data.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 use std::{io, num::{ParseFloatError, ParseIntError}, string::FromUtf8Error};
 
-use actix_web::error::{MultipartError, PayloadError};
+use actix_web::{HttpResponse, error::{MultipartError, PayloadError, ResponseError}};
 
 #[derive(Debug, Fail)]
 pub enum Error {
@@ -55,5 +74,28 @@ impl From<PayloadError> for Error {
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
         Error::FsPool(e)
+    }
+}
+
+impl ResponseError for Error {
+    fn error_response(&self) -> HttpResponse {
+        match *self {
+            Error::FsPool(_) => HttpResponse::InternalServerError().finish(),
+            Error::Payload(ref e) => ResponseError::error_response(e),
+            Error::Multipart(ref e) => ResponseError::error_response(e),
+            Error::ParseField(_) | Error::ParseInt(_) | Error::ParseFloat(_) => {
+                HttpResponse::BadRequest().finish()
+            }
+            Error::GenFilename | Error::MkDir => HttpResponse::InternalServerError().finish(),
+            Error::ContentType
+            | Error::ContentDisposition
+            | Error::Field
+            | Error::FieldCount
+            | Error::FieldSize
+            | Error::FieldType
+            | Error::Filename
+            | Error::FileCount
+            | Error::FileSize => HttpResponse::BadRequest().finish(),
+        }
     }
 }
