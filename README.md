@@ -11,7 +11,8 @@ Add it to your dependencies.
 # Cargo.toml
 
 [dependencies]
-actix-form-data = "0.1.3"
+actix-web = "0.6.0"
+actix-form-data = "0.2.0"
 ```
 
 Require it in your project.
