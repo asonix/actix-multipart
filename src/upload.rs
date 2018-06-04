@@ -17,7 +17,7 @@
  * along with Actix Form Data.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use std::{collections::HashMap, fs::DirBuilder, os::unix::fs::DirBuilderExt, path::Path,
+use std::{collections::HashMap, fs::DirBuilder, path::{Path, PathBuf},
           sync::{Arc, atomic::{AtomicUsize, Ordering}}};
 
 use actix_web::{multipart, error::PayloadError};
@@ -127,6 +127,25 @@ where
         }))
 }
 
+#[cfg(unix)]
+fn build_dir(stored_dir: PathBuf) -> Result<(), Error> {
+    use std::os::unix::fs::DirBuilderExt;
+
+    DirBuilder::new()
+        .recursive(true)
+        .mode(0o755)
+        .create(stored_dir)
+        .map_err(|_| Error::MkDir)
+}
+
+#[cfg(not(unix))]
+fn build_dir(stored_dir: PathBuf) -> Result<(), Error> {
+    DirBuilder::new()
+        .recursive(true)
+        .create(stored_dir)
+        .map_err(|_| Error::MkDir)
+}
+
 fn handle_file_upload<S>(
     field: multipart::Field<S>,
     gen: Arc<FilenameGenerator>,
@@ -161,11 +180,7 @@ where
     let (tx, rx) = oneshot::channel();
 
     match form.pool.execute(Box::new(lazy(move || {
-        let res = DirBuilder::new()
-            .recursive(true)
-            .mode(0o755)
-            .create(stored_dir.clone())
-            .map_err(|_| Error::MkDir);
+        let res = build_dir(stored_dir.clone());
 
         tx.send(res).map_err(|_| ())
     }))) {
