@@ -1,10 +1,10 @@
 [package]
 name = "actix-form-data"
 description = "Multipart Form Data for Actix Web"
-version = "0.2.1"
+version = "0.2.2"
 license = "GPL-3.0"
 authors = ["asonix <asonix@asonix.dog>"]
-repository = "https://github.com/asonix/actix-multipart"
+repository = "git.asonix.cloud/asonix/actix-form-data"
 readme = "README.md"
 keywords = ["actix", "form-data", "multipart", "async"]
 
@@ -12,7 +12,6 @@ keywords = ["actix", "form-data", "multipart", "async"]
 name = "form_data"
 
 [dependencies]
-actix = "0.5.6"
 actix-web = "0.6.0"
 bytes = "0.4.7"
 failure = "0.1"
