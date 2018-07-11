@@ -23,6 +23,7 @@ log = "0.4.1"
 mime = "0.3.5"
 
 [dev-dependencies]
+actix = "0.5.8"
 env_logger = "0.5.9"
 serde = "1.0"
 serde_derive = "1.0"
